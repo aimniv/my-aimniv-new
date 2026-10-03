@@ -13,9 +13,13 @@ import { INITIAL_POSTS } from './mockPosts';
 interface SocialFeedProps {
   lang: Language;
   theme: 'light' | 'dark';
+  // Admin mode: create/edit/pin/delete controls and drafts. Only the admin panel turns this on.
   isAdmin: boolean;
+  // Rendered inside the admin panel: no page header or back button.
+  embedded?: boolean;
+  initialPosts?: SocialPost[];
   onAdminPostsChange?: (posts: SocialPost[]) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 // Custom Tooltip Utility
@@ -28,9 +32,10 @@ const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, 
   </div>
 );
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, onAdminPostsChange, onBack }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, embedded, initialPosts, onAdminPostsChange, onBack }) => {
   // State variables
   const [posts, setPosts] = useState<SocialPost[]>(() => {
+    if (initialPosts) return initialPosts;
     const saved = localStorage.getItem('social_posts');
     return saved ? JSON.parse(saved) : INITIAL_POSTS;
   });
@@ -499,7 +504,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, on
   };
 
   return (
-    <div className={`py-12 sm:py-20 min-h-screen relative overflow-x-hidden ${theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+    <div className={embedded ? 'relative' : `py-12 sm:py-20 min-h-screen relative overflow-x-hidden ${theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       {/* Toast Alert */}
       {showToast && (
         <div className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-[100] bg-orange-600 text-white px-5 py-3 sm:px-6 sm:py-4 rounded-2xl shadow-2xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2.5 sm:gap-3 animate-bounce">
@@ -552,6 +557,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, on
       <div className="container mx-auto px-4 max-w-7xl">
         
         {/* Header Title Section */}
+        {!embedded && (
         <div className="mb-8 sm:mb-12 text-center space-y-3 sm:space-y-4">
           <div className="inline-flex items-center gap-2 sm:gap-3 bg-orange-600/10 text-orange-600 dark:text-orange-500 px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-orange-500/20">
             <Flame size={14} className="animate-pulse" />
@@ -567,15 +573,18 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, on
           </p>
           <div className="w-16 sm:w-24 h-2 bg-orange-600 rounded-full mx-auto"></div>
         </div>
+        )}
 
         {/* Quick Back Button & Admin controls */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8 bg-white/5 dark:bg-zinc-900/40 p-4 rounded-3xl border border-zinc-200/80 dark:border-white/5">
+          {embedded ? <div /> : (
           <button 
             onClick={onBack} 
             className="px-6 py-3 bg-zinc-600/10 hover:bg-zinc-600/20 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2"
           >
             <ArrowLeft size={14} /> {lang === 'tr' ? 'Portfolyoya Dön' : lang === 'ar' ? 'العودة للموقع' : 'Back to Portfolio'}
           </button>
+          )}
 
           <div className="flex items-center gap-3">
             {isAdmin && (

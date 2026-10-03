@@ -562,19 +562,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Posts edited from the public posts page (admin only) have no Save button, so they sync automatically.
-  const postsSaveTimer = useRef<ReturnType<typeof setTimeout>>();
-  const handleAdminPostsChange = useCallback((posts: SocialPost[]) => {
-    setSocialPosts(posts);
-    contentRef.current = { ...contentRef.current, socialPosts: posts };
-    clearTimeout(postsSaveTimer.current);
-    postsSaveTimer.current = setTimeout(() => {
-      pushContentToServer(contentRef.current).catch(error =>
-        alert(`Gönderi sunucuya kaydedilemedi, ziyaretçiler görmez.\n\n${(error as Error).message}`)
-      );
-    }, 1200);
-  }, []);
-
   const handleResetDefaults = async () => {
     if (confirm('Tüm ayarları ve verileri varsayılana sıfırlamak istediğinize emin misiniz?')) {
       const defaults: SiteContent = {
@@ -946,7 +933,7 @@ const App: React.FC = () => {
       {currentView === 'game' ? (
         <GameView lang={lang} t={t} onBack={() => setCurrentView('portfolio')} />
       ) : currentView === 'posts' ? (
-        <SocialFeed key={contentVersion} lang={lang} theme={theme} isAdmin={isAdminLoggedIn} onAdminPostsChange={handleAdminPostsChange} onBack={() => setCurrentView('portfolio')} />
+        <SocialFeed key={contentVersion} lang={lang} theme={theme} isAdmin={false} onBack={() => setCurrentView('portfolio')} />
       ) : (
         <div className="animate-in fade-in duration-1000">
           <section id="hero" className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 pt-28 pb-16 sm:py-0">
