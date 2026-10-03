@@ -44,6 +44,9 @@ const storage = {
   set: (key: string, value: any) => localStorage.setItem(key, JSON.stringify(value))
 };
 
+// --- ADMIN ROUTING / AUTH HELPERS ---
+const isAdminPath = () => window.location.pathname.replace(/\/+$/, '') === '/admin';
+
 // --- ENERGY FLOW GAME COMPONENT ---
 type PieceType = 'straight' | 'bend' | 't-shape' | 'cross' | 'source' | 'bulb';
 interface GridPiece {
@@ -458,9 +461,12 @@ const App: React.FC = () => {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' });
   const [scrolled, setScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState<string>('hero');
-  const [currentView, setCurrentView] = useState<'portfolio' | 'game' | 'admin' | 'posts'>('portfolio');
+  const [currentView, setCurrentView] = useState<'portfolio' | 'game' | 'admin' | 'posts'>(() => isAdminPath() ? 'admin' : 'portfolio');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [adminCreds, setAdminCreds] = useState({ user: '', pass: '' });
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [profile, setProfile] = useState<SiteProfile>(() => storage.get('site_profile', INITIAL_PROFILE));
   const [academics, setAcademics] = useState<AcademicsInfo>(() => storage.get('academics_info', INITIAL_ACADEMICS));
   const [certificates, setCertificates] = useState<CertificateItem[]>(() => storage.get('certificates', INITIAL_CERTIFICATES));
@@ -543,15 +549,30 @@ const App: React.FC = () => {
     return list;
   }, [courses]);
 
+  // Keep the URL in sync with the view: /admin <-> admin panel.
   useEffect(() => {
-    const handleHash = () => {
-      if (window.location.hash === '#admin-panel') setCurrentView('admin');
-      else if (currentView === 'admin') window.location.hash = '#admin-panel';
-    };
-    window.addEventListener('hashchange', handleHash);
-    handleHash();
-    return () => window.removeEventListener('hashchange', handleHash);
+    if (currentView === 'admin' && !isAdminPath()) window.history.pushState(null, '', '/admin');
+    else if (currentView !== 'admin' && isAdminPath()) window.history.pushState(null, '', '/');
   }, [currentView]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentView(prev => isAdminPath() ? 'admin' : (prev === 'admin' ? 'portfolio' : prev));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Ask the server whether the HttpOnly session cookie is valid.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/session', { credentials: 'same-origin' })
+      .then(res => (res.ok ? res.json() : { authenticated: false }))
+      .then(data => { if (!cancelled) setIsAdminLoggedIn(!!data.authenticated); })
+      .catch(() => { if (!cancelled) setIsAdminLoggedIn(false); })
+      .finally(() => { if (!cancelled) setAuthChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -583,12 +604,39 @@ const App: React.FC = () => {
     setIsMenuOpen(false);
   }, []);
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminCreds.user === 'admin' && adminCreds.pass === 'admin') {
-      setIsAdminLoggedIn(true);
-    } else {
-      alert('Invalid credentials');
+    setLoginError('');
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: adminCreds.user, password: adminCreds.pass }),
+      });
+      if (res.ok) {
+        setAdminCreds({ user: '', pass: '' });
+        setIsAdminLoggedIn(true);
+      } else if (res.status === 429) {
+        setLoginError('Too many attempts. Try again later.');
+      } else if (res.status === 503) {
+        setLoginError('Admin login is not configured on the server.');
+      } else {
+        setLoginError('Invalid credentials');
+      }
+    } catch {
+      setLoginError('Could not reach the server.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+    } finally {
+      setIsAdminLoggedIn(false);
     }
   };
 
@@ -639,6 +687,10 @@ const App: React.FC = () => {
 
   const activeAnnouncements = announcements.filter(a => a.status === 'published');
 
+  if (currentView === 'admin' && !authChecked) {
+    return <div className="min-h-screen bg-zinc-950" />;
+  }
+
   if (currentView === 'admin' && !isAdminLoggedIn) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
@@ -650,14 +702,15 @@ const App: React.FC = () => {
           <form className="space-y-6" onSubmit={handleAdminLogin}>
             <div>
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-2">Username</label>
-              <input value={adminCreds.user} onChange={e => setAdminCreds({...adminCreds, user: e.target.value})} type="text" className="w-full bg-white/5 border-b-2 border-white/10 p-4 outline-none focus:border-orange-600 font-bold transition-all text-white" />
+              <input value={adminCreds.user} onChange={e => setAdminCreds({...adminCreds, user: e.target.value})} type="text" autoComplete="username" className="w-full bg-white/5 border-b-2 border-white/10 p-4 outline-none focus:border-orange-600 font-bold transition-all text-white" />
             </div>
             <div>
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-2">Password</label>
-              <input value={adminCreds.pass} onChange={e => setAdminCreds({...adminCreds, pass: e.target.value})} type="password" className="w-full bg-white/5 border-b-2 border-white/10 p-4 outline-none focus:border-orange-600 font-bold transition-all text-white" />
+              <input value={adminCreds.pass} onChange={e => setAdminCreds({...adminCreds, pass: e.target.value})} type="password" autoComplete="current-password" className="w-full bg-white/5 border-b-2 border-white/10 p-4 outline-none focus:border-orange-600 font-bold transition-all text-white" />
             </div>
-            <button className="w-full py-5 bg-orange-600 rounded-2xl font-black text-white uppercase tracking-widest hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20">Login to Dashboard</button>
-            <button type="button" onClick={() => { setCurrentView('portfolio'); window.location.hash = ''; }} className="w-full text-zinc-500 text-xs font-bold hover:text-white transition-all">Back to Portfolio</button>
+            {loginError && <p role="alert" className="text-red-400 text-xs font-bold text-center">{loginError}</p>}
+            <button disabled={isLoggingIn} className="w-full py-5 bg-orange-600 rounded-2xl font-black text-white uppercase tracking-widest hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20 disabled:opacity-60">{isLoggingIn ? '...' : 'Login to Dashboard'}</button>
+            <button type="button" onClick={() => setCurrentView('portfolio')} className="w-full text-zinc-500 text-xs font-bold hover:text-white transition-all">Back to Portfolio</button>
           </form>
         </div>
       </div>
@@ -667,8 +720,8 @@ const App: React.FC = () => {
   if (currentView === 'admin' && isAdminLoggedIn) {
     return (
       <AdminPanel 
-        onLogout={() => setIsAdminLoggedIn(false)} 
-        onReturnToPortfolio={() => { setCurrentView('portfolio'); window.location.hash = ''; }}
+        onLogout={handleAdminLogout} 
+        onReturnToPortfolio={() => setCurrentView('portfolio')}
         announcements={announcements} setAnnouncements={setAnnouncements}
         courses={courses} setCourses={setCourses}
         projects={projects} setProjects={setProjects}
