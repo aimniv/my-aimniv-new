@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { SocialFeed } from './SocialFeed';
 import { 
   Language, Announcement, Course, Project, BlogPost, Message, SocialPost,
   SiteProfile, AcademicsInfo, CertificateItem, SkillsData, ContactInfo 
@@ -157,28 +158,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       category: 'Yazılım'
     };
     setBlogs([newBlog, ...blogs]);
-  };
-
-  const addSocialPost = () => {
-    const newPost: SocialPost = {
-      id: `post-${Date.now()}`,
-      type: 'text',
-      category: 'Genel',
-      isPinned: false,
-      views: 1,
-      likes: 0,
-      reactions: { like: 0, celebrate: 0, support: 0, love: 0, insightful: 0, funny: 0 },
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      authorName: profile.name,
-      authorRole: profile.title,
-      authorAvatar: profile.avatar,
-      hashtags: ['Portfolio', 'Update'],
-      title: { tr: 'Yeni Paylaşım', en: 'New Post', ar: 'منشور جديد' },
-      content: { tr: 'Paylaşım içeriği...', en: 'Post content...', ar: 'محتوى المنشور...' },
-      comments: []
-    };
-    setSocialPosts([newPost, ...socialPosts]);
   };
 
   const unreadMessagesCount = messages.filter(m => !m.isRead).length;
@@ -1278,96 +1257,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB 9: SOCIAL POSTS */}
         {activeTab === 'socialPosts' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-orange-500">Sosyal Akış Gönderileri ({socialPosts.length})</h3>
-                <p className="text-xs text-zinc-400">Sosyal akış sayfanızdaki postları ve etkileşimleri yönetin.</p>
-              </div>
-              <button 
-                onClick={addSocialPost}
-                className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-black uppercase transition-all"
-              >
-                <Plus size={14} /> Yeni Gönderi Paylaş
-              </button>
+            <div>
+              <h3 className="text-xl font-black uppercase tracking-tight text-orange-500">Sosyal Akış Gönderileri ({socialPosts.length})</h3>
+              <p className="text-xs text-zinc-400">Gönderi oluşturun, düzenleyin, sabitleyin veya silin. Değişikliklerin sitede görünmesi için sağ üstteki &quot;Değişiklikleri Kaydet&quot; düğmesine basın.</p>
             </div>
-
-            <div className="grid gap-6">
-              {socialPosts.map(post => (
-                <div key={post.id} className="p-6 bg-zinc-900/50 border border-white/5 rounded-3xl space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-white/5">
-                    <div className="flex items-center gap-3">
-                      <span className="px-2.5 py-1 bg-white/5 text-zinc-400 text-[10px] font-black uppercase rounded-lg">ID: {post.id}</span>
-                      <span className="px-2.5 py-1 bg-orange-600/10 text-orange-500 text-[10px] font-black uppercase rounded-lg">{post.type}</span>
-                      <span className="text-zinc-500 text-xs">{post.date}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setSocialPosts(socialPosts.map(p => p.id === post.id ? { ...p, isPinned: !p.isPinned } : p))}
-                        className={`p-2 rounded-xl transition-all ${post.isPinned ? 'bg-orange-600 text-white' : 'bg-white/5 text-zinc-400 hover:bg-white/10'}`}
-                        title="Sabitle"
-                      >
-                        <Pin size={16} />
-                      </button>
-                      <button 
-                        onClick={() => {
-                          if (confirm('Bu gönderiyi silmek istediğinize emin misiniz?')) {
-                            setSocialPosts(socialPosts.filter(p => p.id !== post.id));
-                          }
-                        }}
-                        className="p-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-black uppercase text-zinc-500 block mb-1">Başlık (TR)</label>
-                      <input 
-                        value={post.title?.tr || ''} 
-                        onChange={e => setSocialPosts(socialPosts.map(p => p.id === post.id ? { ...p, title: { ...p.title, tr: e.target.value } } : p))}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase text-zinc-500 block mb-1">Başlık (EN)</label>
-                      <input 
-                        value={post.title?.en || ''} 
-                        onChange={e => setSocialPosts(socialPosts.map(p => p.id === post.id ? { ...p, title: { ...p.title, en: e.target.value } } : p))}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-sm font-bold text-white outline-none focus:border-orange-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-zinc-500 block mb-1">İçerik (TR)</label>
-                    <textarea 
-                      rows={3}
-                      value={post.content?.tr || ''} 
-                      onChange={e => setSocialPosts(socialPosts.map(p => p.id === post.id ? { ...p, content: { ...p.content, tr: e.target.value } } : p))}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-zinc-300 outline-none focus:border-orange-500 leading-relaxed"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-4 pt-2 text-xs text-zinc-500">
-                    <div className="flex items-center gap-4">
-                      <span>👁️ {post.views} Görüntülenme</span>
-                      <span>❤️ {post.likes} Beğeni</span>
-                      <span>💬 {post.comments?.length || 0} Yorum</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold">Kategori:</span>
-                      <input 
-                        value={post.category} 
-                        onChange={e => setSocialPosts(socialPosts.map(p => p.id === post.id ? { ...p, category: e.target.value } : p))}
-                        className="bg-black/30 border border-white/10 rounded-lg px-2 py-1 text-xs text-white"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <SocialFeed
+              embedded
+              isAdmin
+              lang="tr"
+              theme="dark"
+              initialPosts={socialPosts}
+              onAdminPostsChange={setSocialPosts}
+            />
           </div>
         )}
 
