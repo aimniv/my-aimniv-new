@@ -34,7 +34,7 @@ export interface AdminPanelProps {
   setContact: React.Dispatch<React.SetStateAction<ContactInfo>>;
   socialPosts: SocialPost[];
   setSocialPosts: React.Dispatch<React.SetStateAction<SocialPost[]>>;
-  onSaveAll: () => void;
+  onSaveAll: () => Promise<boolean>;
   onResetDefaults: () => void;
 }
 
@@ -87,10 +87,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleSave = () => {
-    onSaveAll();
-    setSaveToast(true);
-    setTimeout(() => setSaveToast(false), 2500);
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    const saved = await onSaveAll();
+    setIsSaving(false);
+    if (saved) {
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 2500);
+    }
   };
 
   // Add items helpers
@@ -332,9 +338,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <button 
               onClick={handleSave} 
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-3.5 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-orange-600/25 active:scale-95"
+              disabled={isSaving}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-3.5 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-orange-600/25 active:scale-95 disabled:opacity-60"
             >
-              <Save size={16} /> Değişiklikleri Kaydet
+              <Save size={16} /> {isSaving ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
             </button>
           </div>
         </div>
