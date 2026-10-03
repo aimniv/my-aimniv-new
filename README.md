@@ -22,11 +22,11 @@ View your app in aimniv
 ## Admin panel (`/admin`)
 
 The admin panel lives at `<site-url>/admin`. Login is verified on the server by a
-Netlify Function (`netlify/functions/admin-auth.ts`); the session is an HttpOnly,
-Secure, SameSite=Strict cookie that expires after 8 hours.
+Vercel Function (`api/admin/[action].ts`); the session is an HttpOnly, Secure,
+SameSite=Strict cookie that expires after 8 hours.
 
-Set these in **Netlify → Site configuration → Environment variables** (the panel
-refuses all logins until they exist):
+Set these in **Vercel → Project → Settings → Environment Variables** (Production,
+then redeploy; the panel refuses all logins until they exist):
 
 | Variable | Value |
 | --- | --- |
@@ -34,5 +34,5 @@ refuses all logins until they exist):
 | `ADMIN_PASSWORD` | a long, random password |
 | `ADMIN_SESSION_SECRET` | random string, 32+ characters (e.g. `openssl rand -base64 48`) |
 
-Locally, run `npx netlify dev` instead of `npm run dev` so `/api/admin/*` works.
-Put the variables in `.env.local` (git-ignored).
+Locally, run `npx vercel dev` instead of `npm run dev` so `/api/admin/*` works
+(`vercel env pull .env.local` or create `.env.local` by hand; it is git-ignored).

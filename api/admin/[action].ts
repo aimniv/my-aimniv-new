@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-// Admin authentication (Netlify Function, Web Request/Response API).
+// Admin authentication (Vercel Function, Web Request/Response API).
 //
-// Required environment variables (set in Netlify > Site settings > Environment variables):
+// Required environment variables (set in Vercel > Project > Settings > Environment Variables):
 //   ADMIN_USERNAME        admin user name
 //   ADMIN_PASSWORD        admin password (use a long, random one)
 //   ADMIN_SESSION_SECRET  random string, 32+ chars, used to sign session cookies
@@ -70,11 +70,11 @@ const cookieAttrs = (maxAge: number) =>
   `Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
 
 const clientIp = (req: Request) =>
-  req.headers.get('x-nf-client-connection-ip') ||
+  req.headers.get('x-vercel-forwarded-for')?.split(',')[0].trim() ||
   req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
   'unknown';
 
-export default async (req: Request) => {
+const handle = async (req: Request) => {
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   const secret = process.env.ADMIN_SESSION_SECRET;
@@ -97,9 +97,13 @@ export default async (req: Request) => {
 
   if (action === 'login' && req.method === 'POST') {
     // Reject cross-site form posts (defense in depth next to SameSite=Strict).
+    // Compare hosts only: behind a proxy req.url may report http while Origin is https.
     const origin = req.headers.get('origin');
-    if (origin && origin !== new URL(req.url).origin) {
-      return json({ error: 'Forbidden' }, 403);
+    const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
+    if (origin) {
+      let originHost = '';
+      try { originHost = new URL(origin).host; } catch { /* invalid origin */ }
+      if (originHost !== host) return json({ error: 'Forbidden' }, 403);
     }
 
     const ip = clientIp(req);
@@ -139,6 +143,4 @@ export default async (req: Request) => {
   return json({ error: 'Not found' }, 404);
 };
 
-export const config = {
-  path: ['/api/admin/login', '/api/admin/logout', '/api/admin/session'],
-};
+export default { fetch: handle };
