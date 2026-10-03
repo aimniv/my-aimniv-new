@@ -10,6 +10,7 @@ import {
   INITIAL_PROFILE, INITIAL_ACADEMICS, INITIAL_CERTIFICATES, INITIAL_SKILLS, INITIAL_CONTACT 
 } from './constants';
 import { SocialFeed } from './SocialFeed';
+import { fetchServerContent, saveServerContent, SiteContent } from './contentSync';
 import { INITIAL_POSTS } from './mockPosts';
 import { AdminPanel } from './AdminPanel';
 import { 
@@ -467,6 +468,8 @@ const App: React.FC = () => {
   const [adminCreds, setAdminCreds] = useState({ user: '', pass: '' });
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [contentVersion, setContentVersion] = useState(0);
+  const [contentReady, setContentReady] = useState(false);
   const [profile, setProfile] = useState<SiteProfile>(() => storage.get('site_profile', INITIAL_PROFILE));
   const [academics, setAcademics] = useState<AcademicsInfo>(() => storage.get('academics_info', INITIAL_ACADEMICS));
   const [certificates, setCertificates] = useState<CertificateItem[]>(() => storage.get('certificates', INITIAL_CERTIFICATES));
@@ -498,7 +501,47 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : INITIAL_POSTS;
   });
 
-  const handleSaveAllFromAdmin = () => {
+  // Always holds the latest content so debounced/async saves never use stale state.
+  const contentRef = useRef<SiteContent>({});
+  contentRef.current = { profile, academics, certificates, skills, contact, announcements, courses, projects, blogs, socialPosts };
+
+  const applyContent = (c: SiteContent) => {
+    if (c.profile) { setProfile(c.profile); storage.set('site_profile', c.profile); }
+    if (c.academics) { setAcademics(c.academics); storage.set('academics_info', c.academics); }
+    if (c.certificates) { setCertificates(c.certificates); storage.set('certificates', c.certificates); }
+    if (c.skills) { setSkills(c.skills); storage.set('skills', c.skills); }
+    if (c.contact) { const merged = { ...INITIAL_CONTACT, ...c.contact }; setContact(merged); storage.set('contact_info', merged); }
+    if (c.announcements) { setAnnouncements(c.announcements); storage.set('announcements', c.announcements); }
+    if (c.courses) { setCourses(c.courses); storage.set('courses', c.courses); }
+    if (c.projects) { setProjects(c.projects); storage.set('projects', c.projects); }
+    if (c.blogs) { setBlogs(c.blogs); storage.set('blogs', c.blogs); }
+    if (c.socialPosts) { setSocialPosts(c.socialPosts); localStorage.setItem('social_posts', JSON.stringify(c.socialPosts)); }
+  };
+
+  // Visitors get the content the admin saved on the server (falls back to built-in defaults).
+  // The page stays blank until it arrives (max 1.5 s) so visitors never see default content flash first.
+  useEffect(() => {
+    let cancelled = false;
+    const giveUp = setTimeout(() => setContentReady(true), 1500);
+    fetchServerContent().then(serverContent => {
+      if (cancelled) return;
+      if (serverContent) {
+        applyContent(serverContent);
+        setContentVersion(v => v + 1);
+      }
+      clearTimeout(giveUp);
+      setContentReady(true);
+    });
+    return () => { cancelled = true; clearTimeout(giveUp); };
+  }, []);
+
+  const pushContentToServer = async (content: SiteContent) => {
+    const saved = await saveServerContent(content);
+    // Images were swapped for links: keep the editor state in sync so they aren't re-uploaded.
+    if (saved.imagesUploaded) applyContent(saved.content);
+  };
+
+  const handleSaveAllFromAdmin = async (): Promise<boolean> => {
     storage.set('site_profile', profile);
     storage.set('academics_info', academics);
     storage.set('certificates', certificates);
@@ -510,30 +553,41 @@ const App: React.FC = () => {
     storage.set('blogs', blogs);
     storage.set('messages', messages);
     localStorage.setItem('social_posts', JSON.stringify(socialPosts));
+    try {
+      await pushContentToServer(contentRef.current);
+      return true;
+    } catch (error) {
+      alert(`Değişiklikler bu tarayıcıya kaydedildi ama sunucuya kaydedilemedi, ziyaretçiler görmez.\n\n${(error as Error).message}`);
+      return false;
+    }
   };
 
-  const handleResetDefaults = () => {
+  // Posts edited from the public posts page (admin only) have no Save button, so they sync automatically.
+  const postsSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const handleAdminPostsChange = useCallback((posts: SocialPost[]) => {
+    setSocialPosts(posts);
+    contentRef.current = { ...contentRef.current, socialPosts: posts };
+    clearTimeout(postsSaveTimer.current);
+    postsSaveTimer.current = setTimeout(() => {
+      pushContentToServer(contentRef.current).catch(error =>
+        alert(`Gönderi sunucuya kaydedilemedi, ziyaretçiler görmez.\n\n${(error as Error).message}`)
+      );
+    }, 1200);
+  }, []);
+
+  const handleResetDefaults = async () => {
     if (confirm('Tüm ayarları ve verileri varsayılana sıfırlamak istediğinize emin misiniz?')) {
-      setProfile(INITIAL_PROFILE);
-      setAcademics(INITIAL_ACADEMICS);
-      setCertificates(INITIAL_CERTIFICATES);
-      setSkills(INITIAL_SKILLS);
-      setContact(INITIAL_CONTACT);
-      setCourses(COURSES);
-      setProjects(PROJECTS);
-      setBlogs(BLOG_POSTS);
-      setAnnouncements([]);
-      setSocialPosts(INITIAL_POSTS);
-      storage.set('site_profile', INITIAL_PROFILE);
-      storage.set('academics_info', INITIAL_ACADEMICS);
-      storage.set('certificates', INITIAL_CERTIFICATES);
-      storage.set('skills', INITIAL_SKILLS);
-      storage.set('contact_info', INITIAL_CONTACT);
-      storage.set('courses', COURSES);
-      storage.set('projects', PROJECTS);
-      storage.set('blogs', BLOG_POSTS);
-      storage.set('announcements', []);
-      localStorage.setItem('social_posts', JSON.stringify(INITIAL_POSTS));
+      const defaults: SiteContent = {
+        profile: INITIAL_PROFILE, academics: INITIAL_ACADEMICS, certificates: INITIAL_CERTIFICATES,
+        skills: INITIAL_SKILLS, contact: INITIAL_CONTACT, courses: COURSES, projects: PROJECTS,
+        blogs: BLOG_POSTS, announcements: [], socialPosts: INITIAL_POSTS,
+      };
+      applyContent(defaults);
+      try {
+        await pushContentToServer(defaults);
+      } catch (error) {
+        alert(`Varsayılanlar bu tarayıcıda uygulandı ama sunucuya kaydedilemedi.\n\n${(error as Error).message}`);
+      }
     }
   };
 
@@ -687,7 +741,7 @@ const App: React.FC = () => {
 
   const activeAnnouncements = announcements.filter(a => a.status === 'published');
 
-  if (currentView === 'admin' && !authChecked) {
+  if (!contentReady || (currentView === 'admin' && !authChecked)) {
     return <div className="min-h-screen bg-zinc-950" />;
   }
 
@@ -892,7 +946,7 @@ const App: React.FC = () => {
       {currentView === 'game' ? (
         <GameView lang={lang} t={t} onBack={() => setCurrentView('portfolio')} />
       ) : currentView === 'posts' ? (
-        <SocialFeed lang={lang} theme={theme} isAdmin={isAdminLoggedIn} onBack={() => setCurrentView('portfolio')} />
+        <SocialFeed key={contentVersion} lang={lang} theme={theme} isAdmin={isAdminLoggedIn} onAdminPostsChange={handleAdminPostsChange} onBack={() => setCurrentView('portfolio')} />
       ) : (
         <div className="animate-in fade-in duration-1000">
           <section id="hero" className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 pt-28 pb-16 sm:py-0">

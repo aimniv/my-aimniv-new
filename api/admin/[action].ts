@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { get, put } from '@vercel/blob';
 
 // Admin authentication (Vercel Function, Web Request/Response API).
 //
@@ -7,12 +8,29 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 //   ADMIN_PASSWORD        admin password (use a long, random one)
 //   ADMIN_SESSION_SECRET  random string, 32+ chars, used to sign session cookies
 //
+// Storage (Vercel Blob, a *Public* store connected to the project) authenticates with the
+// BLOB_STORE_ID (+ Vercel's OIDC token) or BLOB_READ_WRITE_TOKEN that Vercel adds when the store is connected.
+//
 // Endpoints:
 //   POST /api/admin/login    { username, password } -> sets HttpOnly session cookie
 //   POST /api/admin/logout   -> clears cookie
 //   GET  /api/admin/session  -> { authenticated: boolean }
+//   GET  /api/admin/content  -> { content } public site content (null if nothing saved yet)
+//   PUT  /api/admin/content  -> saves site content (admin only)
+//   POST /api/admin/upload   -> uploads one image, returns { url } (admin only)
 
 const COOKIE_NAME = 'admin_session';
+const CONTENT_PATH = 'site/content.json';
+const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const OBJECT_KEYS = ['profile', 'academics', 'skills', 'contact'];
+const ARRAY_KEYS = ['certificates', 'announcements', 'courses', 'projects', 'blogs', 'socialPosts'];
+const IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
@@ -74,7 +92,136 @@ const clientIp = (req: Request) =>
   req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
   'unknown';
 
+// Compare hosts only: behind a proxy req.url may report http while Origin is https.
+const sameOrigin = (req: Request) => {
+  const origin = req.headers.get('origin');
+  if (!origin) return true;
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+};
+
+// True when the request carries a valid admin session cookie.
+const isAuthed = (req: Request, secret: string, username: string) => {
+  const token = readCookie(req, COOKIE_NAME);
+  return !!token && verifyToken(token, secret, username);
+};
+
+// Checks magic bytes so only real images are stored.
+const looksLikeImage = (buf: Buffer, type: string) => {
+  if (type === 'image/jpeg') return buf[0] === 0xff && buf[1] === 0xd8;
+  if (type === 'image/png') return buf.subarray(0, 4).toString('hex') === '89504e47';
+  if (type === 'image/gif') return buf.subarray(0, 3).toString('latin1') === 'GIF';
+  if (type === 'image/webp') {
+    return buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP';
+  }
+  return false;
+};
+
+const readContent = async () => {
+  try {
+    const result = await get(CONTENT_PATH, { access: 'public', useCache: false });
+    if (!result || result.statusCode !== 200) return null;
+    return JSON.parse(await new Response(result.stream).text());
+  } catch (error) {
+    console.error('content read failed', error);
+    return null;
+  }
+};
+
+const handleContent = async (req: Request, authed: () => boolean) => {
+  if (req.method === 'GET') {
+    return json({ content: await readContent() }, 200, {
+      'Cache-Control': 'public, s-maxage=10, stale-while-revalidate=30',
+    });
+  }
+
+  if (req.method === 'PUT') {
+    if (!sameOrigin(req)) return json({ error: 'Forbidden' }, 403);
+    if (!authed()) return json({ error: 'Unauthorized' }, 401);
+
+    const text = await req.text();
+    if (text.length > MAX_CONTENT_BYTES) return json({ error: 'Content too large' }, 413);
+    if (/"data:image\//.test(text)) return json({ error: 'Images must be uploaded first' }, 400);
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return json({ error: 'Invalid JSON' }, 400);
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return json({ error: 'Invalid content' }, 400);
+    }
+
+    const content: Record<string, unknown> = {};
+    for (const key of OBJECT_KEYS) {
+      if (body[key] === undefined) continue;
+      if (!body[key] || typeof body[key] !== 'object' || Array.isArray(body[key])) {
+        return json({ error: `Invalid "${key}"` }, 400);
+      }
+      content[key] = body[key];
+    }
+    for (const key of ARRAY_KEYS) {
+      if (body[key] === undefined) continue;
+      if (!Array.isArray(body[key])) return json({ error: `Invalid "${key}"` }, 400);
+      content[key] = body[key];
+    }
+
+    try {
+      await put(CONTENT_PATH, JSON.stringify({ ...content, updatedAt: new Date().toISOString() }), {
+        access: 'public',
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: 'application/json',
+        cacheControlMaxAge: 60,
+      });
+    } catch (error) {
+      console.error('content write failed', error);
+      return json({ error: 'Storage is not configured or unavailable.' }, 503);
+    }
+    return json({ ok: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+};
+
+const handleUpload = async (req: Request, authed: () => boolean) => {
+  if (req.method !== 'POST') return json({ error: 'Not found' }, 404);
+  if (!sameOrigin(req)) return json({ error: 'Forbidden' }, 403);
+  if (!authed()) return json({ error: 'Unauthorized' }, 401);
+
+  const type = (req.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const ext = IMAGE_TYPES[type];
+  if (!ext) return json({ error: 'Unsupported image type' }, 415);
+
+  const buf = Buffer.from(await req.arrayBuffer());
+  if (buf.length === 0 || buf.length > MAX_IMAGE_BYTES) return json({ error: 'Invalid image size' }, 413);
+  if (!looksLikeImage(buf, type)) return json({ error: 'Invalid image' }, 415);
+
+  try {
+    const blob = await put(`uploads/${randomUUID()}.${ext}`, buf, {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType: type,
+      cacheControlMaxAge: 31536000,
+    });
+    return json({ url: blob.url });
+  } catch (error) {
+    console.error('upload failed', error);
+    return json({ error: 'Storage is not configured or unavailable.' }, 503);
+  }
+};
+
 const handle = async (req: Request) => {
+  const action = new URL(req.url).pathname.replace(/\/+$/, '').split('/').pop();
+
+  // Public content must be readable even if admin login isn't configured.
+  if (action === 'content' && req.method === 'GET') return handleContent(req, () => false);
+
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   const secret = process.env.ADMIN_SESSION_SECRET;
@@ -84,11 +231,13 @@ const handle = async (req: Request) => {
     return json({ error: 'Admin authentication is not configured.' }, 503);
   }
 
-  const action = new URL(req.url).pathname.replace(/\/+$/, '').split('/').pop();
+  const authed = () => isAuthed(req, secret, username);
+
+  if (action === 'content') return handleContent(req, authed);
+  if (action === 'upload') return handleUpload(req, authed);
 
   if (action === 'session' && req.method === 'GET') {
-    const token = readCookie(req, COOKIE_NAME);
-    return json({ authenticated: !!token && verifyToken(token, secret, username) });
+    return json({ authenticated: authed() });
   }
 
   if (action === 'logout' && req.method === 'POST') {
@@ -97,14 +246,7 @@ const handle = async (req: Request) => {
 
   if (action === 'login' && req.method === 'POST') {
     // Reject cross-site form posts (defense in depth next to SameSite=Strict).
-    // Compare hosts only: behind a proxy req.url may report http while Origin is https.
-    const origin = req.headers.get('origin');
-    const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || new URL(req.url).host;
-    if (origin) {
-      let originHost = '';
-      try { originHost = new URL(origin).host; } catch { /* invalid origin */ }
-      if (originHost !== host) return json({ error: 'Forbidden' }, 403);
-    }
+    if (!sameOrigin(req)) return json({ error: 'Forbidden' }, 403);
 
     const ip = clientIp(req);
     const now = Date.now();

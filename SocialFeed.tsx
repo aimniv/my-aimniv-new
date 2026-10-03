@@ -14,6 +14,7 @@ interface SocialFeedProps {
   lang: Language;
   theme: 'light' | 'dark';
   isAdmin: boolean;
+  onAdminPostsChange?: (posts: SocialPost[]) => void;
   onBack: () => void;
 }
 
@@ -27,7 +28,7 @@ const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, 
   </div>
 );
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, onBack }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, onAdminPostsChange, onBack }) => {
   // State variables
   const [posts, setPosts] = useState<SocialPost[]>(() => {
     const saved = localStorage.getItem('social_posts');
@@ -133,8 +134,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ lang, theme, isAdmin, on
   });
 
   // Sync to local storage
+  const skipFirstPostsSync = useRef(true);
   useEffect(() => {
     localStorage.setItem('social_posts', JSON.stringify(posts));
+    // Only the admin's own edits are pushed to the server; the initial load is not an edit.
+    if (skipFirstPostsSync.current) { skipFirstPostsSync.current = false; return; }
+    if (isAdmin) onAdminPostsChange?.(posts);
   }, [posts]);
 
   useEffect(() => {
