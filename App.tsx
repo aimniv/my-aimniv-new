@@ -469,6 +469,7 @@ const App: React.FC = () => {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [contentVersion, setContentVersion] = useState(0);
+  const [contentReady, setContentReady] = useState(false);
   const [profile, setProfile] = useState<SiteProfile>(() => storage.get('site_profile', INITIAL_PROFILE));
   const [academics, setAcademics] = useState<AcademicsInfo>(() => storage.get('academics_info', INITIAL_ACADEMICS));
   const [certificates, setCertificates] = useState<CertificateItem[]>(() => storage.get('certificates', INITIAL_CERTIFICATES));
@@ -518,14 +519,20 @@ const App: React.FC = () => {
   };
 
   // Visitors get the content the admin saved on the server (falls back to built-in defaults).
+  // The page stays blank until it arrives (max 1.5 s) so visitors never see default content flash first.
   useEffect(() => {
     let cancelled = false;
+    const giveUp = setTimeout(() => setContentReady(true), 1500);
     fetchServerContent().then(serverContent => {
-      if (cancelled || !serverContent) return;
-      applyContent(serverContent);
-      setContentVersion(v => v + 1);
+      if (cancelled) return;
+      if (serverContent) {
+        applyContent(serverContent);
+        setContentVersion(v => v + 1);
+      }
+      clearTimeout(giveUp);
+      setContentReady(true);
     });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(giveUp); };
   }, []);
 
   const pushContentToServer = async (content: SiteContent) => {
@@ -734,7 +741,7 @@ const App: React.FC = () => {
 
   const activeAnnouncements = announcements.filter(a => a.status === 'published');
 
-  if (currentView === 'admin' && !authChecked) {
+  if (!contentReady || (currentView === 'admin' && !authChecked)) {
     return <div className="min-h-screen bg-zinc-950" />;
   }
 
