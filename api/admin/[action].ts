@@ -8,8 +8,8 @@ import { get, put } from '@vercel/blob';
 //   ADMIN_PASSWORD        admin password (use a long, random one)
 //   ADMIN_SESSION_SECRET  random string, 32+ chars, used to sign session cookies
 //
-// Storage (Vercel Blob, a *Public* store connected to the project) needs BLOB_READ_WRITE_TOKEN,
-// which Vercel adds automatically when the store is connected.
+// Storage (Vercel Blob, a *Public* store connected to the project) authenticates with the
+// BLOB_STORE_ID (+ Vercel's OIDC token) or BLOB_READ_WRITE_TOKEN that Vercel adds when the store is connected.
 //
 // Endpoints:
 //   POST /api/admin/login    { username, password } -> sets HttpOnly session cookie

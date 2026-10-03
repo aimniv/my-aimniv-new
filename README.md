@@ -45,7 +45,7 @@ the browser and uploaded; only their links are stored in the content.
 
 One-time setup in Vercel → **Storage → Create → Blob**:
 1. Choose **Public** access (images must be readable by visitors).
-2. Connect the store to this project for **Production** (Vercel adds `BLOB_READ_WRITE_TOKEN` automatically).
+2. Connect the store to this project for **Production** (Vercel adds `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` automatically).
 3. Redeploy.
 
 Then open `/admin`, click **Değişiklikleri Kaydet** once to publish what's currently in your browser.
