@@ -22,17 +22,31 @@ import {
   Zap, Lightbulb, RefreshCw, MessageSquare, Pin, User, Award, Eye, ExternalLink, Image as ImageIcon
 } from 'lucide-react';
 
+const REVEAL_SELECTOR = '.reveal-on-scroll, .stagger-child';
+
+// Fades elements in as they scroll into view. Elements added later (content loaded from the
+// server, language switch, filters) are picked up too, otherwise they would stay invisible.
 const useScrollReveal = (dependency?: any) => {
   useEffect(() => {
     const observerOptions = { threshold: 0.05, rootMargin: '0px 0px 50px 0px' };
-    const observer = new IntersectionObserver((entries) => {
+    const io = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) entry.target.classList.add('is-visible');
       });
     }, observerOptions);
-    const elements = document.querySelectorAll('.reveal-on-scroll, .stagger-child');
-    elements.forEach(el => observer.observe(el));
-    return () => observer.disconnect();
+    const watch = (root: ParentNode) => root.querySelectorAll(REVEAL_SELECTOR).forEach(el => io.observe(el));
+    watch(document);
+
+    const mo = new MutationObserver(mutations => {
+      mutations.forEach(m => m.addedNodes.forEach(node => {
+        if (!(node instanceof Element)) return;
+        if (node.matches(REVEAL_SELECTOR)) io.observe(node);
+        watch(node);
+      }));
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    return () => { io.disconnect(); mo.disconnect(); };
   }, [dependency]);
 };
 
